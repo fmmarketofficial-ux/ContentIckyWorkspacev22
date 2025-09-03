@@ -52,15 +52,3 @@ app.get("/", (req, res) => {
 app.listen(port, () => {
     console.log(`✅ Servidor keep-alive escuchando en el puerto ${port}`);
 });
-
-const express = require("express");
-const app = express();
-const port = 3000;
-
-app.get("/", (req, res) => {
-    res.send("El bot está funcionando correctamente.");
-});
-
-app.listen(port, () => {
-    console.log(`Servidor keep-alive escuchando en http://localhost:${port}`);
-});
