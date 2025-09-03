@@ -1,0 +1,14 @@
+{
+  "name": "discord-sheets-bot",
+  "version": "1.0.0",
+  "description": "Bot privado para gestionar cuentas con Google Sheets.",
+  "main": "main.js",
+  "scripts": {
+    "start": "node main.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.15.3",
+    "express": "^5.1.0",
+    "googleapis": "^140.0.0"
+  }
+}
