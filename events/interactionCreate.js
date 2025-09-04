@@ -58,23 +58,19 @@ async function handleGetAccount(interaction, category, serverFilter = null) {
     await interaction.deferReply({ ephemeral: true });
 
     try {
-        const account = await getAvailableAccount(category, interaction.user, serverFilter);
-
-        // --- INICIO DE LA CORRECCIÓN "UNDEFINED" ---
-        if (!account) {
-            let replyMessage = `❌ Lo sentimos, no hay cuentas de **${category}** disponibles en este momento.`;
-            if (serverFilter) replyMessage += `\n*Que cumplan el filtro de no baneo en "${serverFilter}".*`;
-            await interaction.editReply({ content: replyMessage, components: [] });
-            await logAction(interaction.client, `⚠️ **${interaction.user.tag} (${interaction.user.id})** intentó obtener una cuenta de **${category}** (Sin stock o sin cumplir filtro).`);
-            return; // Detenemos la ejecución aquí
-        }
-        // --- FIN DE LA CORRECCIÓN ---
-    try {
         const account = await getAvailableAccount(
             category,
             interaction.user,
             serverFilter,
         );
+        if (!account) {
+            let replyMessage = `❌ Lo sentimos, no hay cuentas de **${category}** disponibles en este momento.`;
+            if (serverFilter) replyMessage += `\n*Que cumplan el filtro de no baneo en "${serverFilter}".*`;
+            await interaction.editReply({ content: replyMessage, components: [] });
+            await logAction(interaction.client, `⚠️ **${interaction.user.tag} (${interaction.user.id})** intentó obtener una cuenta de **${category}** (Sin stock o sin cumplir filtro).`);
+            return;
+        }
+        
         if (account) {
             const actionRow = new ActionRowBuilder();
 
@@ -168,10 +164,10 @@ async function handleGetAccount(interaction, category, serverFilter = null) {
             );
         }
     } catch (error) {
-            console.error("--- ERROR FATAL EN handleGetAccount ---", error);
-            await interaction.editReply({ content: '❌ **¡Error Crítico!** Revisa la consola de Replit.' });
-        }
+        console.error("--- ERROR FATAL EN handleGetAccount ---", error);
+        await interaction.editReply({ content: '❌ **¡Error Crítico!** Revisa la consola de Replit.' });
     }
+}
 
 module.exports = {
     name: Events.InteractionCreate,
