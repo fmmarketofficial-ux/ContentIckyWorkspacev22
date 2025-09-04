@@ -7,7 +7,6 @@ const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
 });
 
-// Cargar Comandos
 client.commands = new Collection();
 const commandsPath = path.join(__dirname, "commands");
 const commandFiles = fs
@@ -21,7 +20,6 @@ for (const file of commandFiles) {
     }
 }
 
-// Cargar Eventos
 const eventsPath = path.join(__dirname, "events");
 const eventFiles = fs
     .readdirSync(eventsPath)
@@ -36,7 +34,6 @@ for (const file of eventFiles) {
     }
 }
 
-// Actualizador de Estadísticas del Panel
 client.on("ready", () => {
     setInterval(() => {
         const channelId = process.env.PANEL_CHANNEL_ID;
@@ -49,7 +46,6 @@ client.on("ready", () => {
 
 client.login(process.env.DISCORD_BOT_TOKEN);
 
-// Servidor Web para Keep-Alive
 const express = require("express");
 const app = express();
 app.get("/", (req, res) => res.send("Bot privado funcionando."));

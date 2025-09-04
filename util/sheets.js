@@ -21,9 +21,9 @@ async function getAvailableAccount(sheetName, user, serverFilter = null) {
             const isUsed = String(row[0]).toUpperCase() === 'TRUE';
             if (!isUsed) {
                 const bans = (isDiscord ? (row[4] || "") : (row[3] || "")).toLowerCase();
-                if (serverFilter && !bans.includes(serverFilter.toLowerCase())) {
-                    availableRowIndex = i; break;
-                } else if (!serverFilter) {
+                if (serverFilter) {
+                    if (!bans.includes(serverFilter.toLowerCase())) { availableRowIndex = i; break; }
+                } else {
                     availableRowIndex = i; break;
                 }
             }
@@ -50,7 +50,6 @@ async function getAvailableAccount(sheetName, user, serverFilter = null) {
 
 async function addMultipleAccounts(sheetName, accountsString) {
     try {
-        const isDiscord = sheetName === 'Discord';
         const response = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!B:B` });
         const allValues = response.data.values || [];
         const existingEmails = new Set(allValues.flat().map(e => e.toLowerCase()));
@@ -64,9 +63,9 @@ async function addMultipleAccounts(sheetName, accountsString) {
         const duplicates = [];
 
         lines.forEach(line => {
-            const email = (isDiscord ? (line.match(/E-Mail:\s*([^|]+)/i) || [])[1] : (line.split(/[:|;]/)[0] || "")).trim();
+            const email = (sheetName === 'Discord' ? (line.match(/E-Mail:\s*([^|]+)/i) || [])[1] : (line.split(/[:|;]/)[0] || "")).trim();
             if (email && !existingEmails.has(email.toLowerCase())) {
-                if (isDiscord) {
+                if (sheetName === 'Discord') {
                     const passMatch = line.match(/Password:\s*([^|]+)/i);
                     const tokenMatch = line.match(/2FA Token:\s*([^|]+)/i);
                     if (passMatch && tokenMatch) {
