@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { Client, Collection, GatewayIntentBits } = require("discord.js");
-const { createOrUpdatePanel } = require('./util/panelManager.js');
+const { createOrUpdatePanel } = require("./util/panelManager.js");
 
 const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
@@ -44,12 +44,12 @@ client.on("ready", () => {
         if (channelId && messageId) {
             createOrUpdatePanel(client, channelId, messageId);
         }
-    }, 60000); // Cada 5 minutos
+    }, 60000); // 1 minuto
 });
 
 client.login(process.env.DISCORD_BOT_TOKEN);
 
-// Servidor Web para Keep-Alive 24/7 en Replit
+// Servidor Web para Keep-Alive
 const express = require("express");
 const app = express();
 app.get("/", (req, res) => res.send("Bot privado funcionando."));

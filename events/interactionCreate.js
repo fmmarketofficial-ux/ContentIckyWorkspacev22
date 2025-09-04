@@ -17,7 +17,6 @@ const {
     releaseAccountByEmail,
 } = require("../util/sheets.js");
 const { getOtpFromWebmail } = require("../util/webmail.js");
-const { createOrUpdatePanel } = require('../util/panelManager.js');
 const axios = require("axios");
 
 const cooldowns = new Map();
@@ -63,17 +62,10 @@ async function handleGetAccount(interaction, category, serverFilter = null) {
             interaction.user,
             serverFilter,
         );
-        if (!account) {
-            let replyMessage = `❌ Lo sentimos, no hay cuentas de **${category}** disponibles en este momento.`;
-            if (serverFilter) replyMessage += `\n*Que cumplan el filtro de no baneo en "${serverFilter}".*`;
-            await interaction.editReply({ content: replyMessage, components: [] });
-            await logAction(interaction.client, `⚠️ **${interaction.user.tag} (${interaction.user.id})** intentó obtener una cuenta de **${category}** (Sin stock o sin cumplir filtro).`);
-            return;
-        }
-        
         if (account) {
             const actionRow = new ActionRowBuilder();
 
+            // Lógica de botones condicional
             if (category === "Discord" && account.twoFactorToken) {
                 actionRow.addComponents(
                     new ButtonBuilder()
@@ -92,6 +84,7 @@ async function handleGetAccount(interaction, category, serverFilter = null) {
                 );
             }
 
+            // Botones comunes para todas las cuentas
             actionRow.addComponents(
                 new ButtonBuilder()
                     .setCustomId(`add_ban_${account.email}`)
@@ -165,7 +158,10 @@ async function handleGetAccount(interaction, category, serverFilter = null) {
         }
     } catch (error) {
         console.error("--- ERROR FATAL EN handleGetAccount ---", error);
-        await interaction.editReply({ content: '❌ **¡Error Crítico!** Revisa la consola de Replit.' });
+        await interaction.editReply({
+            content:
+                "❌ **¡Error Crítico!** No se pudo comunicar con la base de datos de Google Sheets. Revisa la consola de Replit para ver el error detallado.",
+        });
     }
 }
 
@@ -188,6 +184,7 @@ module.exports = {
         if (interaction.isButton()) {
             const buttonId = interaction.customId;
 
+            // Comprobación de rol solo para botones que se originan en el servidor
             if (interaction.inGuild()) {
                 if (
                     !interaction.member.roles.cache.has(
@@ -213,7 +210,7 @@ module.exports = {
                     .setStyle(TextInputStyle.Short)
                     .setRequired(false)
                     .setPlaceholder(
-                        "Ej: DespistaosRP (déjalo en blanco si no importa)",
+                        "Ej: Pollaca RP (déjalo en blanco si no importa)",
                     );
                 modal.addComponents(
                     new ActionRowBuilder().addComponents(serverInput),
@@ -235,7 +232,7 @@ module.exports = {
                     );
                 const accountsInput = new TextInputBuilder()
                     .setCustomId("add_accounts_list")
-                    .setLabel("Lista de Cuentas")
+                    .setLabel("Lista de Cuentas (formato: email:pass)")
                     .setStyle(TextInputStyle.Paragraph)
                     .setRequired(true)
                     .setPlaceholder(
@@ -395,7 +392,8 @@ Discord -> E-Mail: user@mail.com | Pass: ... | 2FA: ...`,
                         const banButton = newActionRow.components.find((c) =>
                             c.customId.startsWith("add_ban_"),
                         );
-                        if (banButton) banButton.setDisabled(true);
+                        if (banButton)
+                            banButton.setDisabled(true).setLabel("Ban Añadido");
                         await originalMessage.edit({
                             components: [newActionRow],
                         });
@@ -431,23 +429,6 @@ Discord -> E-Mail: user@mail.com | Pass: ... | 2FA: ...`,
                 await interaction.editReply({ content: report });
             }
 
-            // --- INICIO DE LA MEJORA DE REFRESCO ---
-            // Si se añadieron cuentas, forzamos la actualización del panel
-            if (result.added > 0) {
-                const channelId = process.env.PANEL_CHANNEL_ID;
-                const messageId = process.env.PANEL_MESSAGE_ID;
-                if (channelId && messageId) {
-                    await createOrUpdatePanel(interaction.client, channelId, messageId);
-                    console.log("Panel actualizado tras añadir cuentas.");
-                }
-            }
-            // --- FIN DE LA MEJORA DE REFRESCO ---
-            await logAction(
-                interaction.client,
-                `➕ **${interaction.user.tag}** ha añadido **${result.added}** cuentas nuevas a **${category}**.`,
-            );
-
-            
             if (modalId === "auth_modal") {
                 await interaction.deferReply({ ephemeral: true });
                 const code =
