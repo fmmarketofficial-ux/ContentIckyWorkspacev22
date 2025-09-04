@@ -1,30 +1,43 @@
-const { google } = require('googleapis');
+const { google } = require("googleapis");
 
 const SPREADSHEET_ID = process.env.spreadsheetId;
 const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
-const auth = new google.auth.GoogleAuth({ credentials, scopes: ['https://www.googleapis.com/auth/spreadsheets'] });
-const sheets = google.sheets({ version: 'v4', auth });
+const auth = new google.auth.GoogleAuth({
+    credentials,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+});
+const sheets = google.sheets({ version: "v4", auth });
 
 async function getAvailableAccount(sheetName, user, serverFilter = null) {
-    const isDiscord = sheetName === 'Discord';
+    const isDiscord = sheetName === "Discord";
     const range = isDiscord ? `${sheetName}!A2:F` : `${sheetName}!A2:E`;
     try {
-        const response = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range });
+        const response = await sheets.spreadsheets.values.get({
+            spreadsheetId: SPREADSHEET_ID,
+            range,
+        });
         const rows = response.data.values;
         if (!rows || rows.length === 0) return null;
 
         let availableRowIndex = -1;
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
-            if (!row || typeof row[1] !== 'string' || row[1].trim() === '') continue;
+            if (!row || typeof row[1] !== "string" || row[1].trim() === "")
+                continue;
 
-            const isUsed = String(row[0]).toUpperCase() === 'TRUE';
+            const isUsed = String(row[0]).toUpperCase() === "TRUE";
             if (!isUsed) {
-                const bans = (isDiscord ? (row[4] || "") : (row[3] || "")).toLowerCase();
+                const bans = (
+                    isDiscord ? row[4] || "" : row[3] || ""
+                ).toLowerCase();
                 if (serverFilter) {
-                    if (!bans.includes(serverFilter.toLowerCase())) { availableRowIndex = i; break; }
+                    if (!bans.includes(serverFilter.toLowerCase())) {
+                        availableRowIndex = i;
+                        break;
+                    }
                 } else {
-                    availableRowIndex = i; break;
+                    availableRowIndex = i;
+                    break;
                 }
             }
         }
@@ -34,64 +47,124 @@ async function getAvailableAccount(sheetName, user, serverFilter = null) {
         const sheetRowNumber = availableRowIndex + 2;
         const rowData = rows[availableRowIndex];
         const accountData = isDiscord
-            ? { email: rowData[1], pass: rowData[2], twoFactorToken: rowData[3], bans: rowData[4] || 'Sin baneos' }
-            : { email: rowData[1], pass: rowData[2], bans: rowData[3] || 'Sin baneos', twoFactorToken: null };
-        
-        const timestamp = new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' });
-        const statusColumn = isDiscord ? 'F' : 'E';
+            ? {
+                  email: rowData[1],
+                  pass: rowData[2],
+                  twoFactorToken: rowData[3],
+                  bans: rowData[4] || "Sin baneos",
+              }
+            : {
+                  email: rowData[1],
+                  pass: rowData[2],
+                  bans: rowData[3] || "Sin baneos",
+                  twoFactorToken: null,
+              };
+
+        const timestamp = new Date().toLocaleString("es-ES", {
+            timeZone: "Europe/Madrid",
+        });
+        const statusColumn = isDiscord ? "F" : "E";
         const statusMessage = `✅ Usada por ${user.tag} (${user.id}) el ${timestamp}`;
-        
-        await sheets.spreadsheets.values.update({ spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!A${sheetRowNumber}`, valueInputOption: 'USER_ENTERED', resource: { values: [['TRUE']] } });
-        await sheets.spreadsheets.values.update({ spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!${statusColumn}${sheetRowNumber}`, valueInputOption: 'USER_ENTERED', resource: { values: [[statusMessage]] } });
-        
+
+        await sheets.spreadsheets.values.update({
+            spreadsheetId: SPREADSHEET_ID,
+            range: `${sheetName}!A${sheetRowNumber}`,
+            valueInputOption: "USER_ENTERED",
+            resource: { values: [["TRUE"]] },
+        });
+        await sheets.spreadsheets.values.update({
+            spreadsheetId: SPREADSHEET_ID,
+            range: `${sheetName}!${statusColumn}${sheetRowNumber}`,
+            valueInputOption: "USER_ENTERED",
+            resource: { values: [[statusMessage]] },
+        });
+
         return accountData;
-    } catch (error) { console.error(`Error en getAvailableAccount para ${sheetName}:`, error); return null; }
+    } catch (error) {
+        console.error(`Error en getAvailableAccount para ${sheetName}:`, error);
+        return null;
+    }
 }
 
+// /util/sheets.js (reemplaza esta función)
 async function addMultipleAccounts(sheetName, accountsString) {
     try {
-        const response = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!B:B` });
+        const isDiscord = sheetName === "Discord";
+        const response = await sheets.spreadsheets.values.get({
+            spreadsheetId: process.env.spreadsheetId,
+            range: `${sheetName}!B:B`,
+        });
         const allValues = response.data.values || [];
-        const existingEmails = new Set(allValues.flat().map(e => e.toLowerCase()));
-        
-        let firstEmptyRow = allValues.findIndex(row => !row[0] || row[0] === '') + 1;
-        if (firstEmptyRow === 0) firstEmptyRow = allValues.length + 1;
-        if (firstEmptyRow === 1) firstEmptyRow = 2;
+        const existingEmails = new Set(
+            allValues.flat().map((e) => (e ? e.toLowerCase() : "")),
+        );
 
-        const lines = accountsString.split('\n').filter(line => line.trim() !== "");
+        let firstEmptyRow =
+            allValues.findIndex((row) => !row[0] || row[0].trim() === "") + 2;
+        if (firstEmptyRow === 1) firstEmptyRow = allValues.length + 2;
+
+        const lines = accountsString
+            .split("\n")
+            .filter((line) => line.trim() !== "");
         const newRowsData = [];
         const duplicates = [];
 
-        lines.forEach(line => {
-            const email = (sheetName === 'Discord' ? (line.match(/E-Mail:\s*([^|]+)/i) || [])[1] : (line.split(/[:|;]/)[0] || "")).trim();
-            if (email && !existingEmails.has(email.toLowerCase())) {
-                if (sheetName === 'Discord') {
+        lines.forEach((line) => {
+            const email = isDiscord
+                ? (line.match(/E-Mail:\s*([^|]+)/i) || [])[1]
+                : line.split(/[:|;]/)[0] || null;
+            if (
+                email &&
+                email.trim() &&
+                !existingEmails.has(email.trim().toLowerCase())
+            ) {
+                if (isDiscord) {
                     const passMatch = line.match(/Password:\s*([^|]+)/i);
                     const tokenMatch = line.match(/2FA Token:\s*([^|]+)/i);
                     if (passMatch && tokenMatch) {
-                        newRowsData.push([false, email, passMatch[1].trim(), tokenMatch[1].trim(), "", ""]);
+                        newRowsData.push([
+                            false,
+                            email.trim(),
+                            passMatch[1].trim(),
+                            tokenMatch[1].trim(),
+                            "",
+                            "",
+                        ]);
                     }
                 } else {
                     const parts = line.split(/[:|;]/);
-                    if (parts.length >= 2) newRowsData.push([false, email, parts[1].trim(), "", ""]);
+                    if (parts.length >= 2)
+                        newRowsData.push([
+                            false,
+                            parts[0].trim(),
+                            parts[1].trim(),
+                            "",
+                            "",
+                        ]);
                 }
-                existingEmails.add(email.toLowerCase());
+                existingEmails.add(email.trim().toLowerCase());
             } else if (email) {
-                duplicates.push(email);
+                duplicates.push(email.trim());
             }
         });
-        
+
         if (newRowsData.length > 0) {
             const range = `${sheetName}!A${firstEmptyRow}`;
             await sheets.spreadsheets.values.update({
-                spreadsheetId: SPREADSHEET_ID,
+                spreadsheetId: process.env.spreadsheetId,
                 range,
-                valueInputOption: 'USER_ENTERED',
+                valueInputOption: "USER_ENTERED",
                 resource: { values: newRowsData },
             });
         }
         return { added: newRowsData.length, duplicates: duplicates.length };
-    } catch (error) { console.error("Error en addMultipleAccounts:", error); return { error: true }; }
+    } catch (error) {
+        console.error("Error en addMultipleAccounts:", error);
+        return {
+            error: true,
+            message: "No se pudo conectar con Google Sheets.",
+        };
+    }
 }
 
 async function verifyAuthCode(code, userId) {
@@ -158,9 +231,9 @@ async function addBanByEmail(email, serverName) {
             );
             if (rowIndex !== -1) {
                 const sheetRowNumber = rowIndex + 2;
-                const isDiscord = sheetName === 'Discord';
+                const isDiscord = sheetName === "Discord";
                 const bansColumnIndex = isDiscord ? 3 : 2;
-                const bansColumn = isDiscord ? 'E' : 'D';
+                const bansColumn = isDiscord ? "E" : "D";
                 const currentBans = rows[rowIndex][bansColumnIndex] || "";
                 if (
                     currentBans.toLowerCase().includes(serverName.toLowerCase())
@@ -226,7 +299,7 @@ async function getDashboardStats() {
         const sheetNames = ["FiveM", "Discord", "Steam"];
         for (const sheetName of sheetNames) {
             const key = sheetName.toLowerCase();
-            const isDiscord = sheetName === 'Discord';
+            const isDiscord = sheetName === "Discord";
             const range = isDiscord ? `${sheetName}!A2:F` : `${sheetName}!A2:E`;
             const response = await sheets.spreadsheets.values.get({
                 spreadsheetId: SPREADSHEET_ID,
@@ -243,7 +316,7 @@ async function getDashboardStats() {
             stats[key].total = rows.length;
             rows.forEach((row) => {
                 const isUsed = String(row[0]).toUpperCase() === "TRUE";
-                const bans = (isDiscord ? (row[4] || "") : (row[3] || "")).trim();
+                const bans = (isDiscord ? row[4] || "" : row[3] || "").trim();
                 if (isUsed) {
                     stats[key].used++;
                 } else {
@@ -277,7 +350,7 @@ async function getServerBanStats(serverName) {
     const accountSheets = ["FiveM", "Discord", "Steam"];
     try {
         for (const sheetName of accountSheets) {
-            const isDiscord = sheetName === 'Discord';
+            const isDiscord = sheetName === "Discord";
             const range = isDiscord ? `${sheetName}!A2:F` : `${sheetName}!A2:E`;
             const response = await sheets.spreadsheets.values.get({
                 spreadsheetId: SPREADSHEET_ID,
@@ -292,7 +365,9 @@ async function getServerBanStats(serverName) {
             let bannedAvailable = 0;
             rows.forEach((row) => {
                 const isUsed = String(row[0]).toUpperCase() === "TRUE";
-                const bans = (isDiscord ? (row[4] || "") : (row[3] || "")).toLowerCase();
+                const bans = (
+                    isDiscord ? row[4] || "" : row[3] || ""
+                ).toLowerCase();
                 if (bans.includes(serverName.toLowerCase())) {
                     bannedTotal++;
                     if (!isUsed) {
@@ -319,7 +394,7 @@ async function releaseAccountByEmail(email) {
     const accountSheets = ["FiveM", "Discord", "Steam"];
     try {
         for (const sheetName of accountSheets) {
-            const isDiscord = sheetName === 'Discord';
+            const isDiscord = sheetName === "Discord";
             const range = isDiscord ? `${sheetName}!A2:F` : `${sheetName}!A2:E`;
             const response = await sheets.spreadsheets.values.get({
                 spreadsheetId: SPREADSHEET_ID,
@@ -332,7 +407,7 @@ async function releaseAccountByEmail(email) {
             );
             if (rowIndex !== -1) {
                 const sheetRowNumber = rowIndex + 2;
-                const statusColumn = isDiscord ? 'F' : 'E';
+                const statusColumn = isDiscord ? "F" : "E";
                 await sheets.spreadsheets.values.update({
                     spreadsheetId: SPREADSHEET_ID,
                     range: `${sheetName}!A${sheetRowNumber}`,
@@ -364,11 +439,15 @@ async function releaseAccountByEmail(email) {
 
 async function getAccountPack(user, serverFilter = null) {
     try {
-        const categories = ['FiveM', 'Discord', 'Steam'];
+        const categories = ["FiveM", "Discord", "Steam"];
         const pack = {};
-        
+
         for (const category of categories) {
-            const account = await getAvailableAccount(category, user, serverFilter);
+            const account = await getAvailableAccount(
+                category,
+                user,
+                serverFilter,
+            );
             if (!account) {
                 // Si no se puede obtener alguna cuenta, liberar las que ya se obtuvieron
                 for (const [cat, acc] of Object.entries(pack)) {
@@ -376,7 +455,7 @@ async function getAccountPack(user, serverFilter = null) {
                 }
                 return {
                     success: false,
-                    error: `No hay cuentas de ${category} disponibles${serverFilter ? ` que cumplan el filtro de "${serverFilter}"` : ''}.`
+                    error: `No hay cuentas de ${category} disponibles${serverFilter ? ` que cumplan el filtro de "${serverFilter}"` : ""}.`,
                 };
             }
             pack[category] = account;
@@ -384,10 +463,10 @@ async function getAccountPack(user, serverFilter = null) {
 
         return { success: true, pack };
     } catch (error) {
-        console.error('Error en getAccountPack:', error);
+        console.error("Error en getAccountPack:", error);
         return {
             success: false,
-            error: 'Error interno al generar el pack. Revisa la consola.'
+            error: "Error interno al generar el pack. Revisa la consola.",
         };
     }
 }
