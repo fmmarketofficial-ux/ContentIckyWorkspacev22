@@ -1,23 +1,21 @@
-const {
-    Events,
-    InteractionType,
-    EmbedBuilder,
-    ModalBuilder,
-    TextInputBuilder,
-    TextInputStyle,
-    ActionRowBuilder,
-    ButtonBuilder,
-    ButtonStyle,
-} = require("discord.js");
-const {
-    verifyAuthCode,
-    getAvailableAccount,
-    addBanByEmail,
-    addMultipleAccounts,
-    releaseAccountByEmail,
-} = require("../util/sheets.js");
-const { getOtpFromWebmail } = require("../util/webmail.js");
-const axios = require("axios");
+const { Events, InteractionType, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
+const { verifyAuthCode, getAvailableAccount, addBanByEmail, addMultipleAccounts, releaseAccountByEmail, getAccountPack } = require('../util/sheets.js');
+const { getOtpFromWebmail } = require('../util/webmail.js');
+const { createOrUpdatePanel } = require('../util/panelManager.js');
+const axios = require('axios');
+
+const EMOJIS = {
+    fivem: '1199780732411858944',
+    discord: '1309247066660143284',
+    steam: '1324741325324550166',
+    pack: '1413217971324719124',
+    add: '1413208229030400170',
+    ban: '1413205691874803916',
+    check: '1413209465594974208',
+    mail: '1413208225532084305',
+    password: '1413208227495284796',
+    otp: '1413208234717610025'
+};
 
 const cooldowns = new Map();
 
@@ -165,6 +163,53 @@ async function handleGetAccount(interaction, category, serverFilter = null) {
     }
 }
 
+async function handleGetPack(interaction, serverFilter = null) {
+    const cooldownAmount = 20 * 1000; // Cooldown más largo para el pack
+    const now = Date.now();
+    if (cooldowns.has(interaction.user.id) && now < cooldowns.get(interaction.user.id)) {
+        const timeLeft = (cooldowns.get(interaction.user.id) - now) / 1000;
+        return interaction.reply({ content: `⏳ Debes esperar **${timeLeft.toFixed(1)} segundos** para pedir otro pack.`, ephemeral: true });
+    }
+    cooldowns.set(interaction.user.id, now + cooldownAmount);
+
+    await interaction.deferReply({ ephemeral: true });
+    
+    const result = await getAccountPack(interaction.user, serverFilter);
+
+    if (!result.success) {
+        return interaction.editReply({ content: `❌ **Error al generar el pack:** ${result.error}` });
+    }
+
+    const { pack } = result;
+
+    try {
+        await interaction.editReply('✅ ¡Pack generado! Revisa tus mensajes privados, te estoy enviando los detalles...');
+        
+        const packEmails = Object.values(pack).map(acc => acc.email).join(',');
+
+        for (const [category, account] of Object.entries(pack)) {
+            const embed = new EmbedBuilder().setColor('#5865F2').setTitle(`<:${category.toLowerCase()}:${EMOJIS[category.toLowerCase()]}> Cuenta de ${category} Asignada`).addFields(
+                { name: `<:${EMOJIS.mail}:${EMOJIS.mail}> Email / Usuario`, value: `\`\`\`${account.email}\`\`\`` },
+                { name: `<:${EMOJIS.password}:${EMOJIS.password}> Contraseña`, value: `\`\`\`${account.pass}\`\`\`` }
+            );
+            await interaction.user.send({ embeds: [embed] });
+        }
+
+        const actionRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`pack_otp_${pack['FiveM'].email}_${pack['FiveM'].pass}`).setLabel('OTP FiveM').setStyle(ButtonStyle.Secondary).setEmoji(EMOJIS.otp),
+            new ButtonBuilder().setCustomId(`pack_2fa_${pack['Discord'].twoFactorToken}`).setLabel('2FA Discord').setStyle(ButtonStyle.Secondary).setEmoji(EMOJIS.otp),
+            new ButtonBuilder().setCustomId(`pack_add_ban_${packEmails}`).setLabel('Añadir Baneo').setStyle(ButtonStyle.Danger).setEmoji(EMOJIS.ban),
+            new ButtonBuilder().setCustomId(`pack_release_${packEmails}`).setLabel('Devolver Pack').setStyle(ButtonStyle.Success).setEmoji(EMOJIS.check)
+        );
+
+        await interaction.user.send({ content: '**Panel de Control para tu Pack:**', components: [actionRow] });
+        
+    } catch (error) {
+        console.error("Error enviando el pack:", error);
+        await interaction.editReply("❌ No pude enviarte todos los DMs del pack. Revisa tu configuración de privacidad.");
+    }
+}
+
 module.exports = {
     name: Events.InteractionCreate,
     async execute(interaction) {
@@ -201,21 +246,37 @@ module.exports = {
 
             if (buttonId.startsWith("panel_get_")) {
                 const category = buttonId.split("_").pop();
-                const modal = new ModalBuilder()
-                    .setCustomId(`filter_modal_${category}`)
-                    .setTitle(`Obtener Cuenta de ${category}`);
-                const serverInput = new TextInputBuilder()
-                    .setCustomId("filter_server")
-                    .setLabel("Servidor sin baneo (opcional)")
-                    .setStyle(TextInputStyle.Short)
-                    .setRequired(false)
-                    .setPlaceholder(
-                        "Ej: Pollaca RP (déjalo en blanco si no importa)",
+                if (category === "pack") {
+                    const modal = new ModalBuilder()
+                        .setCustomId('filter_modal_pack')
+                        .setTitle('Obtener Pack Completo');
+                    const serverInput = new TextInputBuilder()
+                        .setCustomId('filter_server')
+                        .setLabel('Servidor sin baneo (opcional)')
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(false)
+                        .setPlaceholder('Ej: Pollaca RP (déjalo en blanco si no importa)');
+                    modal.addComponents(
+                        new ActionRowBuilder().addComponents(serverInput),
                     );
-                modal.addComponents(
-                    new ActionRowBuilder().addComponents(serverInput),
-                );
-                await interaction.showModal(modal);
+                    await interaction.showModal(modal);
+                } else {
+                    const modal = new ModalBuilder()
+                        .setCustomId(`filter_modal_${category}`)
+                        .setTitle(`Obtener Cuenta de ${category}`);
+                    const serverInput = new TextInputBuilder()
+                        .setCustomId("filter_server")
+                        .setLabel("Servidor sin baneo (opcional)")
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(false)
+                        .setPlaceholder(
+                            "Ej: Pollaca RP (déjalo en blanco si no importa)",
+                        );
+                    modal.addComponents(
+                        new ActionRowBuilder().addComponents(serverInput),
+                    );
+                    await interaction.showModal(modal);
+                }
             }
 
             if (buttonId === "panel_add_accounts") {
@@ -357,6 +418,91 @@ Discord -> E-Mail: user@mail.com | Pass: ... | 2FA: ...`,
                     );
                 }
             }
+
+            // Manejadores para botones de pack
+            if (buttonId.startsWith("pack_otp_")) {
+                await interaction.reply({
+                    content: "🔑 Accediendo al webmail y buscando el código OTP...",
+                    ephemeral: true,
+                });
+                const parts = buttonId.split("_");
+                const email = parts[2];
+                const password = parts[3];
+                const result = await getOtpFromWebmail(email, password);
+
+                if (result.success) {
+                    await interaction.editReply(`✅ **Código OTP encontrado:** \`${result.code}\``);
+                } else {
+                    await interaction.editReply(`❌ **Error:** ${result.error}`);
+                }
+            }
+
+            if (buttonId.startsWith("pack_2fa_")) {
+                await interaction.reply({
+                    content: "🔑 Conectando a la API y pidiendo el código 2FA...",
+                    ephemeral: true,
+                });
+                const token2FA = buttonId.substring(8);
+                const apiUrl = `https://2fa.fb.rip/api/otp/${token2FA}`;
+
+                try {
+                    const response = await axios.get(apiUrl);
+                    const otpCode = response.data.token;
+                    if (otpCode) {
+                        await interaction.editReply(`✅ **Código 2FA obtenido:** \`${otpCode}\``);
+                    } else {
+                        await interaction.editReply(`❌ **Error:** La API no devolvió un código válido.`);
+                    }
+                } catch (error) {
+                    await interaction.editReply(`❌ **Error:** No se pudo conectar con la API de 2FA.`);
+                }
+            }
+
+            if (buttonId.startsWith("pack_add_ban_")) {
+                const emails = buttonId.substring(14).split(',');
+                const modal = new ModalBuilder()
+                    .setCustomId(`pack_ban_modal_${emails.join(',')}`) 
+                    .setTitle('Añadir ban al pack completo');
+                const serverInput = new TextInputBuilder()
+                    .setCustomId('ban_server')
+                    .setLabel('Nombre del servidor del baneo')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(serverInput),
+                );
+                await interaction.showModal(modal);
+            }
+
+            if (buttonId.startsWith("pack_release_")) {
+                await interaction.deferUpdate();
+                const emails = buttonId.substring(13).split(',');
+                let successCount = 0;
+                let errors = [];
+
+                for (const email of emails) {
+                    const result = await releaseAccountByEmail(email.trim());
+                    if (result.success) {
+                        successCount++;
+                    } else {
+                        errors.push(`${email}: ${result.message}`);
+                    }
+                }
+
+                const originalMessage = interaction.message;
+                const disabledRow = ActionRowBuilder.from(originalMessage.components[0]);
+                disabledRow.components.forEach(component => component.setDisabled(true));
+                disabledRow.components.find(c => c.customId.startsWith('pack_release_')).setLabel('Pack Devuelto');
+
+                await originalMessage.edit({ components: [disabledRow] });
+                
+                let responseMessage = `✅ **Pack devuelto:** ${successCount} cuentas liberadas exitosamente.`;
+                if (errors.length > 0) {
+                    responseMessage += `\n❌ **Errores:** ${errors.join(', ')}`;
+                }
+                
+                await interaction.followUp({ content: responseMessage, ephemeral: true });
+            }
         }
 
         if (interaction.isModalSubmit()) {
@@ -368,7 +514,11 @@ Discord -> E-Mail: user@mail.com | Pass: ... | 2FA: ...`,
                     interaction.fields
                         .getTextInputValue("filter_server")
                         .trim() || null;
-                await handleGetAccount(interaction, category, serverFilter);
+                if (category === "pack") {
+                    await handleGetPack(interaction, serverFilter);
+                } else {
+                    await handleGetAccount(interaction, category, serverFilter);
+                }
             }
 
             if (modalId.startsWith("add_ban_server_modal_")) {
@@ -427,6 +577,30 @@ Discord -> E-Mail: user@mail.com | Pass: ... | 2FA: ...`,
                     report += `\n- **Cuentas duplicadas ignoradas:** ${result.duplicates}`;
                 }
                 await interaction.editReply({ content: report });
+            }
+
+            if (modalId.startsWith("pack_ban_modal_")) {
+                await interaction.deferReply({ ephemeral: true });
+                const emails = modalId.substring(16).split(',');
+                const server = interaction.fields.getTextInputValue('ban_server');
+                let successCount = 0;
+                let errors = [];
+
+                for (const email of emails) {
+                    const result = await addBanByEmail(email.trim(), server);
+                    if (result.success) {
+                        successCount++;
+                    } else {
+                        errors.push(`${email}: ${result.message}`);
+                    }
+                }
+
+                let responseMessage = `✅ **Ban añadido:** ${successCount} cuentas del pack han sido marcadas con ban en "${server}".`;
+                if (errors.length > 0) {
+                    responseMessage += `\n❌ **Errores:** ${errors.join(', ')}`;
+                }
+                
+                await interaction.editReply({ content: responseMessage });
             }
 
             if (modalId === "auth_modal") {

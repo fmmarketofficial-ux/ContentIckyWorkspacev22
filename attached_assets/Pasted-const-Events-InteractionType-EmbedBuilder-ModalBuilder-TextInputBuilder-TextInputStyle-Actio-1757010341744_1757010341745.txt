@@ -1,0 +1,80 @@
+const { Events, InteractionType, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
+const { verifyAuthCode, getAvailableAccount, addBanByEmail, addMultipleAccounts, releaseAccountByEmail, getAccountPack } = require('../util/sheets.js');
+const { getOtpFromWebmail } = require('../util/webmail.js');
+const { createOrUpdatePanel } = require('../util/panelManager.js');
+const axios = require('axios');
+
+const EMOJIS = {
+    fivem: '1199780732411858944',
+    discord: '1309247066660143284',
+    steam: '1324741325324550166',
+    pack: '1413217971324719124',
+    add: '1413208229030400170',
+    ban: '1413205691874803916',
+    check: '1413209465594974208',
+    mail: '1413208225532084305',
+    password: '1413208227495284796',
+    otp: '1413208234717610025'
+};
+
+const cooldowns = new Map();
+
+async function logAction(client, message) { /* ... */ }
+
+async function handleGetAccount(interaction, category, serverFilter = null) {
+    // ... (código completo y corregido que ya tienes)
+}
+
+async function handleGetPack(interaction, serverFilter = null) {
+    const cooldownAmount = 20 * 1000; // Cooldown más largo para el pack
+    const now = Date.now();
+    if (cooldowns.has(interaction.user.id) && now < cooldowns.get(interaction.user.id)) {
+        const timeLeft = (cooldowns.get(interaction.user.id) - now) / 1000;
+        return interaction.reply({ content: `⏳ Debes esperar **${timeLeft.toFixed(1)} segundos** para pedir otro pack.`, ephemeral: true });
+    }
+    cooldowns.set(interaction.user.id, now + cooldownAmount);
+
+    await interaction.deferReply({ ephemeral: true });
+    
+    const result = await getAccountPack(interaction.user, serverFilter);
+
+    if (!result.success) {
+        return interaction.editReply({ content: `❌ **Error al generar el pack:** ${result.error}` });
+    }
+
+    const { pack } = result;
+
+    try {
+        await interaction.editReply('✅ ¡Pack generado! Revisa tus mensajes privados, te estoy enviando los detalles...');
+        
+        const packEmails = Object.values(pack).map(acc => acc.email).join(',');
+
+        for (const [category, account] of Object.entries(pack)) {
+            const embed = new EmbedBuilder().setColor('#5865F2').setTitle(`<:${category.toLowerCase()}:${EMOJIS[category.toLowerCase()]}> Cuenta de ${category} Asignada`).addFields(
+                { name: `<:${EMOJIS.mail}:${EMOJIS.mail}> Email / Usuario`, value: `\`\`\`${account.email}\`\`\`` },
+                { name: `<:${EMOJIS.password}:${EMOJIS.password}> Contraseña`, value: `\`\`\`${account.pass}\`\`\`` }
+            );
+            await interaction.user.send({ embeds: [embed] });
+        }
+
+        const actionRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`pack_otp_${pack['FiveM'].email}_${pack['FiveM'].pass}`).setLabel('OTP FiveM').setStyle(ButtonStyle.Secondary).setEmoji(EMOJIS.otp),
+            new ButtonBuilder().setCustomId(`pack_2fa_${pack['Discord'].twoFactorToken}`).setLabel('2FA Discord').setStyle(ButtonStyle.Secondary).setEmoji(EMOJIS.otp),
+            new ButtonBuilder().setCustomId(`pack_add_ban_${packEmails}`).setLabel('Añadir Baneo').setStyle(ButtonStyle.Danger).setEmoji(EMOJIS.ban),
+            new ButtonBuilder().setCustomId(`pack_release_${packEmails}`).setLabel('Devolver Pack').setStyle(ButtonStyle.Success).setEmoji(EMOJIS.check)
+        );
+
+        await interaction.user.send({ content: '**Panel de Control para tu Pack:**', components: [actionRow] });
+        
+    } catch (error) {
+        console.error("Error enviando el pack:", error);
+        await interaction.editReply("❌ No pude enviarte todos los DMs del pack. Revisa tu configuración de privacidad.");
+    }
+}
+
+module.exports = {
+    name: Events.InteractionCreate,
+    async execute(interaction) {
+        // ... (el resto del código, incluyendo la nueva lógica para `panel_get_pack` y los botones `pack_*`)
+    },
+};

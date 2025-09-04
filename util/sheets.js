@@ -363,6 +363,36 @@ async function releaseAccountByEmail(email) {
     }
 }
 
+async function getAccountPack(user, serverFilter = null) {
+    try {
+        const categories = ['FiveM', 'Discord', 'Steam'];
+        const pack = {};
+        
+        for (const category of categories) {
+            const account = await getAvailableAccount(category, user, serverFilter);
+            if (!account) {
+                // Si no se puede obtener alguna cuenta, liberar las que ya se obtuvieron
+                for (const [cat, acc] of Object.entries(pack)) {
+                    await releaseAccountByEmail(acc.email);
+                }
+                return {
+                    success: false,
+                    error: `No hay cuentas de ${category} disponibles${serverFilter ? ` que cumplan el filtro de "${serverFilter}"` : ''}.`
+                };
+            }
+            pack[category] = account;
+        }
+
+        return { success: true, pack };
+    } catch (error) {
+        console.error('Error en getAccountPack:', error);
+        return {
+            success: false,
+            error: 'Error interno al generar el pack. Revisa la consola.'
+        };
+    }
+}
+
 module.exports = {
     verifyAuthCode,
     getAvailableAccount,
@@ -371,4 +401,5 @@ module.exports = {
     addMultipleAccounts,
     getServerBanStats,
     releaseAccountByEmail,
+    getAccountPack,
 };
