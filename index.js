@@ -1,11 +1,20 @@
 const fs = require("node:fs");
 const path = require("node:path");
+// Se añade 'GatewayIntentBits' para poder especificar los intents necesarios.
 const { Client, Collection, GatewayIntentBits } = require("discord.js");
 const { createOrUpdatePanel } = require("./util/panelManager.js");
 
+// --- INICIO DE LA CORRECCIÓN ---
+// Se añade 'GatewayIntentBits.DirectMessages' para que el bot pueda recibir
+// mensajes en DMs, lo cual es necesario para el colector de archivos .txt.
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.DirectMessages, // <-- INTENT AÑADIDO
+    ],
 });
+// --- FIN DE LA CORRECCIÓN ---
 
 client.commands = new Collection();
 const commandsPath = path.join(__dirname, "commands");

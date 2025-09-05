@@ -2,14 +2,11 @@ const {
     SlashCommandBuilder,
     ChannelType,
     PermissionFlagsBits,
-    EmbedBuilder,
-    ActionRowBuilder,
-    ButtonBuilder,
-    ButtonStyle,
 } = require("discord.js");
-const { getDashboardStats } = require("../util/sheets.js");
+const { createOrUpdatePanel } = require("../util/panelManager.js");
 
-const OWNER_ID = "1246475575888052350"; // Tu ID de propietario
+// Ya no está hardcodeado, se carga desde los Secrets de Replit para mayor seguridad.
+const OWNER_ID = process.env.OWNER_ID;
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -17,7 +14,7 @@ module.exports = {
         .setDescription(
             "Crea el panel de control interactivo en un canal (Solo Propietario).",
         )
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator) // Sigue siendo necesario para que aparezca solo a admins
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
         .addChannelOption((option) =>
             option
                 .setName("channel")
@@ -26,8 +23,15 @@ module.exports = {
                 .setRequired(true),
         ),
     async execute(interaction) {
-        // --- INICIO DE LA MODIFICACIÓN ---
-        // Comprobamos si el usuario que ejecuta el comando es el propietario
+        // Comprobamos si el ID del propietario está configurado en los Secrets.
+        if (!OWNER_ID) {
+            return interaction.reply({
+                content:
+                    "❌ El `OWNER_ID` no está configurado en los Secrets del bot.",
+                ephemeral: true,
+            });
+        }
+
         if (interaction.user.id !== OWNER_ID) {
             return interaction.reply({
                 content:
@@ -35,76 +39,24 @@ module.exports = {
                 ephemeral: true,
             });
         }
-        // --- FIN DE LA MODIFICACIÓN ---
 
         await interaction.deferReply({ ephemeral: true });
         const channel = interaction.options.getChannel("channel");
 
-        // ... (el resto del código se mantiene igual que antes)
-        const stats = await getDashboardStats();
-        if (!stats)
-            return interaction.editReply(
-                "❌ No se pudieron obtener las estadísticas iniciales.",
-            );
-
-        const embed = new EmbedBuilder()
-            .setColor("#0099ff")
-            .setTitle("Panel de Control de Cuentas")
-            .setDescription(
-                "Haz clic en un botón para obtener una cuenta de esa categoría.\n\n**Estadísticas de Cuentas Disponibles:**",
-            )
-            .addFields(
-                {
-                    name: "<:fivem:1199780732411858944> FIVEM",
-                    value: `Disponibles: **${stats.fivem.available}**`,
-                    inline: true,
-                },
-                {
-                    name: "<:discord:1309247066660143284> DISCORD",
-                    value: `Disponibles: **${stats.discord.available}**`,
-                    inline: true,
-                },
-                {
-                    name: "<:steam:1324741325324550166> STEAM",
-                    value: `Disponibles: **${stats.steam.available}**`,
-                    inline: true,
-                },
-            )
-            .setFooter({
-                text: "Las estadísticas se actualizan automáticamente.",
-            })
-            .setTimestamp();
-
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId("panel_get_fivem")
-                .setLabel("FiveM")
-                .setStyle(ButtonStyle.Primary)
-                .setEmoji("1199780732411858944"),
-            new ButtonBuilder()
-                .setCustomId("panel_get_discord")
-                .setLabel("Discord")
-                .setStyle(ButtonStyle.Secondary)
-                .setEmoji("1309247066660143284"),
-            new ButtonBuilder()
-                .setCustomId("panel_get_steam")
-                .setLabel("Steam")
-                .setStyle(ButtonStyle.Secondary)
-                .setEmoji("1324741325324550166"),
-            new ButtonBuilder()
-                .setCustomId("panel_add_accounts")
-                .setLabel("Añadir Cuentas")
-                .setStyle(ButtonStyle.Success)
-                .setEmoji("➕"),
+        const result = await createOrUpdatePanel(
+            interaction.client,
+            channel.id,
         );
 
+        if (result.error) {
+            return interaction.editReply(
+                `❌ Error al crear el panel: ${result.error}`,
+            );
+        }
+
         try {
-            const panelMessage = await channel.send({
-                embeds: [embed],
-                components: [row],
-            });
             await interaction.editReply(
-                `✅ Panel creado en ${channel}.\n**IMPORTANTE:** Copia estos IDs en los Secrets:\n- \`PANEL_CHANNEL_ID\`: \`${channel.id}\`\n- \`PANEL_MESSAGE_ID\`: \`${panelMessage.id}\``,
+                `✅ Panel creado en ${channel}.\n**IMPORTANTE:** Copia estos IDs en los Secrets:\n- \`PANEL_CHANNEL_ID\`: \`${channel.id}\`\n- \`PANEL_MESSAGE_ID\`: \`${result.panelMessage.id}\`\n- \`OWNER_ID\`: \`Tu ID de usuario de Discord\``,
             );
         } catch (error) {
             console.error(error);
