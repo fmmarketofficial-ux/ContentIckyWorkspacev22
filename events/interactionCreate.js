@@ -693,42 +693,6 @@ module.exports = {
                         }
                     }
                     break;
-            }
-        }
-        if (interaction.isModalSubmit()) {
-            const { customId } = interaction;
-            const [action, ...args] = customId.split("_");
-            switch (action) {
-                case "filter":
-                    const category = args[1];
-                    const serverFilter =
-                        interaction.fields
-                            .getTextInputValue("filter_server")
-                            .trim() || null;
-                    if (category === "pack")
-                        await handleGetPack(interaction, serverFilter);
-                    else
-                        await handleGetAccount(
-                            interaction,
-                            category,
-                            serverFilter,
-                        );
-                    break;
-                case "add":
-                    if (
-                        args[0] === "ban" &&
-                        args[1] === "server" &&
-                        args[2] === "modal"
-                    ) {
-                        await interaction.deferReply({ ephemeral: true });
-                        const prefix = "add_ban_server_modal_";
-                        const email = customId.substring(prefix.length);
-                        const server =
-                            interaction.fields.getTextInputValue("ban_server");
-                        const result = await addBanByEmail(email, server);
-                        await interaction.editReply(result.message);
-                    }
-                    break;
                 case "pack":
                     console.log(`🔍 DEBUG - Entrando en case "pack" con args:`, args);
                     
@@ -896,6 +860,42 @@ module.exports = {
                                 );
                             }
                         }
+                    }
+                    break;
+            }
+        }
+        if (interaction.isModalSubmit()) {
+            const { customId } = interaction;
+            const [action, ...args] = customId.split("_");
+            switch (action) {
+                case "filter":
+                    const category = args[1];
+                    const serverFilter =
+                        interaction.fields
+                            .getTextInputValue("filter_server")
+                            .trim() || null;
+                    if (category === "pack")
+                        await handleGetPack(interaction, serverFilter);
+                    else
+                        await handleGetAccount(
+                            interaction,
+                            category,
+                            serverFilter,
+                        );
+                    break;
+                case "add":
+                    if (
+                        args[0] === "ban" &&
+                        args[1] === "server" &&
+                        args[2] === "modal"
+                    ) {
+                        await interaction.deferReply({ ephemeral: true });
+                        const prefix = "add_ban_server_modal_";
+                        const email = customId.substring(prefix.length);
+                        const server =
+                            interaction.fields.getTextInputValue("ban_server");
+                        const result = await addBanByEmail(email, server);
+                        await interaction.editReply(result.message);
                     }
                     break;
             }
