@@ -223,6 +223,12 @@ async function handleGetPack(interaction, serverFilter = null) {
                 .setStyle(ButtonStyle.Success)
                 .setEmoji(EMOJIS.check),
         );
+        
+        console.log(`🔍 DEBUG - Botones del pack creados:`);
+        console.log(`- OTP Button ID: "pack_otp_${pack.FiveM.email}_${pack.FiveM.pass}"`);
+        console.log(`- 2FA Button ID: "pack_2fa_${pack.Discord.twoFactorToken}"`);
+        console.log(`- Ban Button ID: "pack_add_ban_${packEmails}"`);
+        console.log(`- Release Button ID: "pack_release_${packEmails}"`);
         await interaction.user.send({
             content: "**Panel de Control para tu Pack:**",
             components: [actionRow],
@@ -269,7 +275,12 @@ module.exports = {
             }
         }
         if (interaction.isButton()) {
+            console.log(`🔍 DEBUG - Button pressed:`);
+            console.log(`- customId completo: "${interaction.customId}"`);
+            
             const [action, ...args] = interaction.customId.split("_");
+            console.log(`- action: "${action}"`);
+            console.log(`- args: [${args.map(a => `"${a}"`).join(', ')}]`);
             switch (action) {
                 case "panel":
                     if (args[0] === "get" && args[1] === "pack") {
@@ -487,43 +498,6 @@ module.exports = {
                         });
                         try {
                             const token2FA = args.slice(1).join("_");
-                            const response = await axios.get(
-                                `https://2fa.fb.rip/api/otp/${token2FA}`,
-                            );
-                            await interaction.editReply(
-                                response.data.token
-                                    ? `${formatEmoji(STATUS_EMOJIS.success)} **Código 2FA:** \`${response.data.token}\``
-                                    : `${formatEmoji(STATUS_EMOJIS.error)} **Error:** API no devolvió un código.`,
-                            );
-                        } catch (error) {
-                            await interaction.editReply(
-                                `${formatEmoji(STATUS_EMOJIS.error)} **Error:** No se pudo conectar con la API de 2FA.`,
-                            );
-                        }
-                    }
-                    break;
-                case "get":
-                    if (args[0] === "otp") {
-                        await interaction.reply({
-                            content: `${formatEmoji(STATUS_EMOJIS.key)} Buscando código OTP...`,
-                            ephemeral: true,
-                        });
-                        const result = await getOtpFromWebmail(
-                            args[1],
-                            args[2],
-                        );
-                        await interaction.editReply(
-                            result.success
-                                ? `${formatEmoji(STATUS_EMOJIS.success)} **Código OTP:** \`${result.code}\``
-                                : `${formatEmoji(STATUS_EMOJIS.error)} **Error:** ${result.error}`,
-                        );
-                    } else if (args[0] === "2fa") {
-                        await interaction.reply({
-                            content: `${formatEmoji(STATUS_EMOJIS.key)} Pidiendo código 2FA...`,
-                            ephemeral: true,
-                        });
-                        try {
-                            const token2FA = args.slice(1).join("_");
                             const apiUrl = `https://2fa.fb.rip/api/otp/${token2FA}`;
 
                             console.log(`🔍 DEBUG COMPLETO - 2FA Request:`);
@@ -532,7 +506,7 @@ module.exports = {
                             console.log(`- args array:`, args);
 
                             const response = await axios.get(apiUrl, {
-                                timeout: 10000, // 10 segundos de timeout
+                                timeout: 10000,
                                 headers: {
                                     "User-Agent": "Discord-Bot/1.0",
                                 },
@@ -756,55 +730,171 @@ module.exports = {
                     }
                     break;
                 case "pack":
-                    if (args[0] === "ban" && args[1] === "modal") {
-                        await interaction.deferReply({ ephemeral: true });
-                        const prefix = "pack_ban_modal_";
-                        const emails = customId
-                            .substring(prefix.length)
-                            .split(",");
-                        const server =
-                            interaction.fields.getTextInputValue("ban_server");
-                        let successCount = 0;
-                        for (const email of emails) {
-                            if (email) await addBanByEmail(email, server);
-                            successCount++;
+                    console.log(`🔍 DEBUG - Entrando en case "pack" con args:`, args);
+                    
+                    const packEmailsRaw = args.slice(2).join("_");
+                    const packEmails = packEmailsRaw.split(",");
+                    
+                    console.log(`🔍 DEBUG - Pack parsing:`);
+                    console.log(`- args[0]: "${args[0]}"`);
+                    console.log(`- args[1]: "${args[1]}"`);
+                    console.log(`- packEmailsRaw: "${packEmailsRaw}"`);
+                    console.log(`- packEmails: [${packEmails.map(e => `"${e}"`).join(', ')}]`);
+
+                    if (args[0] === "add" && args[1] === "ban") {
+                        console.log(`✅ Ejecutando pack add ban`);
+                        const modal = new ModalBuilder()
+                            .setCustomId(`pack_ban_modal_${packEmailsRaw}`)
+                            .setTitle(`Añadir Baneo al Pack`);
+                        const serverInput = new TextInputBuilder()
+                            .setCustomId("ban_server")
+                            .setLabel("Nombre del servidor")
+                            .setStyle(TextInputStyle.Short)
+                            .setRequired(true);
+                        modal.addComponents(
+                            new ActionRowBuilder().addComponents(serverInput),
+                        );
+                        await interaction.showModal(modal);
+                    }
+
+                    if (args[0] === "release") {
+                        console.log(`✅ Ejecutando pack release`);
+                        await interaction.deferUpdate();
+                        console.log(
+                            `🔍 DEBUG - Liberando pack con emails: ${packEmails}`,
+                        );
+
+                        let releasedCount = 0;
+                        for (const email of packEmails) {
+                            if (email && email.trim()) {
+                                const result = await releaseAccountByEmail(
+                                    email.trim(),
+                                );
+                                if (result.success) releasedCount++;
+                            }
                         }
+
+                        try {
+                            const channel =
+                                await interaction.client.channels.fetch(
+                                    interaction.channelId,
+                                );
+                            const message = await channel.messages.fetch(
+                                interaction.message.id,
+                            );
+                            const disabledRow = ActionRowBuilder.from(
+                                message.components[0],
+                            );
+                            disabledRow.components.forEach((c) =>
+                                c.setDisabled(true),
+                            );
+                            await message.edit({ components: [disabledRow] });
+                        } catch (editError) {
+                            console.error(
+                                "Error al editar mensaje del pack (borrado/reiniciado):",
+                                editError.message,
+                            );
+                        }
+
+                        await interaction.followUp({
+                            content: `<:${EMOJIS.check}:${EMOJIS.check}> Pack liberado: ${releasedCount} cuentas devueltas.`,
+                            ephemeral: true,
+                        });
+                    }
+
+                    if (args[0] === "otp") {
+                        console.log(`✅ Ejecutando pack OTP`);
+                        await interaction.reply({
+                            content: `${formatEmoji(STATUS_EMOJIS.key)} Buscando OTP del pack...`,
+                            ephemeral: true,
+                        });
+                        console.log(`🔍 DEBUG - Pack OTP args:`, args);
+
+                        const email = args[1];
+                        const password = args[2];
+                        console.log(`🔍 Pack OTP - email: "${email}", password: "${password}"`);
+
+                        const result = await getOtpFromWebmail(email, password);
                         await interaction.editReply(
-                            `${formatEmoji(STATUS_EMOJIS.success)} Ban en "${server}" añadido a las ${successCount} cuentas del pack.`,
+                            result.success
+                                ? `${formatEmoji(STATUS_EMOJIS.success)} **Código OTP (FiveM del Pack):** \`${result.code}\``
+                                : `${formatEmoji(STATUS_EMOJIS.error)} **Error:** ${result.error}`,
                         );
                     }
-                    break;
-                case "auth":
-                    if (customId === "auth_modal") {
-                        await interaction.deferReply({ ephemeral: true });
-                        const code =
-                            interaction.fields.getTextInputValue(
-                                "auth_code_input",
-                            );
-                        const result = await verifyAuthCode(
-                            code,
-                            interaction.user.id,
-                        );
-                        if (result.success) {
-                            try {
-                                const role =
-                                    await interaction.guild.roles.fetch(
-                                        process.env.verifiedRoleId,
-                                    );
-                                await interaction.member.roles.add(role);
-                                await interaction.editReply({
-                                    content: `${formatEmoji(STATUS_EMOJIS.success)} ${result.message}`,
-                                });
-                            } catch (e) {
-                                console.error(e);
-                                await interaction.editReply({
-                                    content: `${formatEmoji(STATUS_EMOJIS.error)} Error al asignar el rol. ¿ID de rol bien configurado?`,
-                                });
-                            }
-                        } else {
-                            await interaction.editReply({
-                                content: `${formatEmoji(STATUS_EMOJIS.error)} ${result.message}`,
+
+                    if (args[0] === "2fa") {
+                        console.log(`✅ Ejecutando pack 2FA`);
+                        await interaction.reply({
+                            content: `${formatEmoji(STATUS_EMOJIS.key)} Pidiendo 2FA del pack...`,
+                            ephemeral: true,
+                        });
+
+                        try {
+                            const token2FA = args.slice(1).join("_");
+                            const apiUrl = `https://2fa.fb.rip/api/otp/${token2FA}`;
+
+                            console.log(`🔍 DEBUG - Pack 2FA Request:`);
+                            console.log(`- Token 2FA: "${token2FA}"`);
+                            console.log(`- URL: "${apiUrl}"`);
+
+                            const response = await axios.get(apiUrl, {
+                                timeout: 10000,
+                                headers: {
+                                    "User-Agent": "Discord-Bot/1.0",
+                                },
                             });
+
+                            console.log(
+                                `🔍 DEBUG - Pack 2FA Response:`,
+                                JSON.stringify(response.data, null, 2),
+                            );
+
+                            let parsedData = response.data;
+                            let otpCode = null;
+                            let timeRemaining = null;
+
+                            // Misma lógica que el 2FA individual
+                            if (
+                                parsedData &&
+                                parsedData.ok &&
+                                parsedData.data &&
+                                parsedData.data.otp
+                            ) {
+                                otpCode = parsedData.data.otp;
+                                timeRemaining = parsedData.data.timeRemaining;
+                            } else if (parsedData && parsedData.token) {
+                                otpCode = parsedData.token;
+                            } else if (parsedData && parsedData.otp) {
+                                otpCode = parsedData.otp;
+                            }
+
+                            if (otpCode) {
+                                const timeText = timeRemaining
+                                    ? `\n*Tiempo restante: ${timeRemaining}s*`
+                                    : "";
+                                await interaction.editReply(
+                                    `${formatEmoji(STATUS_EMOJIS.success)} **Código 2FA (Discord del Pack):** \`${otpCode}\`${timeText}`,
+                                );
+                            } else {
+                                await interaction.editReply(
+                                    `${formatEmoji(STATUS_EMOJIS.error)} **Error:** No se pudo obtener el código 2FA del pack.`,
+                                );
+                            }
+                        } catch (error) {
+                            console.error(
+                                "Error al obtener 2FA del pack:",
+                                error,
+                            );
+
+                            if (error.response) {
+                                await interaction.editReply(
+                                    `${formatEmoji(STATUS_EMOJIS.error)} **Error HTTP ${error.response.status}:** ${error.response.statusText}`,
+                                );
+                            } else {
+                                await interaction.editReply(
+                                    `${formatEmoji(STATUS_EMOJIS.error)} **Error:** No se pudo conectar con la API de 2FA.`,
+                                );
+                            }
                         }
                     }
                     break;

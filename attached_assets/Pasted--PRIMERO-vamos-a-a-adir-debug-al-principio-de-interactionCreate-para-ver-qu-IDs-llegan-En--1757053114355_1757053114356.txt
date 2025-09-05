@@ -1,0 +1,159 @@
+// PRIMERO, vamos a añadir debug al principio de interactionCreate para ver qué IDs llegan
+
+// En events/interactionCreate.js, al principio de la sección if (interaction.isButton())
+// AÑADE ESTAS LÍNEAS DE DEBUG:
+
+if (interaction.isButton()) {
+    console.log(`🔍 DEBUG - Button pressed:`);
+    console.log(`- customId completo: "${interaction.customId}"`);
+    
+    const [action, ...args] = interaction.customId.split("_");
+    console.log(`- action: "${action}"`);
+    console.log(`- args: [${args.map(a => `"${a}"`).join(', ')}]`);
+    
+    switch (action) {
+        // ... resto del código
+    }
+}
+
+// TAMBIÉN, corrige la creación de botones en handleGetPack (util/sheets.js o donde esté)
+// El problema podría estar en cómo se crean los IDs de los botones del pack
+
+// En la función handleGetPack, REEMPLAZA la creación de botones con esto:
+
+const actionRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+        .setCustomId(`pack_otp_${pack.FiveM.email}_${pack.FiveM.pass}`)
+        .setLabel("OTP FiveM")
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji(EMOJIS.otp),
+    new ButtonBuilder()
+        .setCustomId(`pack_2fa_${pack.Discord.twoFactorToken}`)
+        .setLabel("2FA Discord")
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji(EMOJIS.otp),
+    new ButtonBuilder()
+        .setCustomId(`pack_add_ban_${packEmails}`)
+        .setLabel("Añadir Baneo")
+        .setStyle(ButtonStyle.Danger)
+        .setEmoji(EMOJIS.ban),
+    new ButtonBuilder()
+        .setCustomId(`pack_release_${packEmails}`)
+        .setLabel("Devolver Pack")
+        .setStyle(ButtonStyle.Success)
+        .setEmoji(EMOJIS.check),
+);
+
+// Y añade estos logs JUSTO DESPUÉS de crear los botones:
+console.log(`🔍 DEBUG - Botones del pack creados:`);
+console.log(`- OTP Button ID: "pack_otp_${pack.FiveM.email}_${pack.FiveM.pass}"`);
+console.log(`- 2FA Button ID: "pack_2fa_${pack.Discord.twoFactorToken}"`);
+console.log(`- Ban Button ID: "pack_add_ban_${packEmails}"`);
+console.log(`- Release Button ID: "pack_release_${packEmails}"`);
+
+// TAMBIÉN, asegúrate de que el case "pack" esté DENTRO del switch principal
+// No como un case separado. Debería verse así:
+
+switch (action) {
+    case "panel":
+        // ... código del panel
+        break;
+    case "add":
+        // ... código de add
+        break;
+    case "release":
+        // ... código de release
+        break;
+    case "get":
+        // ... código de get
+        break;
+    case "pack":  // ← ASEGÚRATE DE QUE ESTÉ AQUÍ
+        console.log(`🔍 DEBUG - Entrando en case "pack" con args:`, args);
+        
+        const packEmailsRaw = args.slice(2).join("_");
+        const packEmails = packEmailsRaw.split(",");
+        
+        console.log(`🔍 DEBUG - Pack parsing:`);
+        console.log(`- args[0]: "${args[0]}"`);
+        console.log(`- args[1]: "${args[1]}"`);
+        console.log(`- packEmailsRaw: "${packEmailsRaw}"`);
+        console.log(`- packEmails: [${packEmails.map(e => `"${e}"`).join(', ')}]`);
+        
+        if (args[0] === "add" && args[1] === "ban") {
+            console.log(`✅ Ejecutando pack add ban`);
+            const modal = new ModalBuilder()
+                .setCustomId(`pack_ban_modal_${packEmailsRaw}`)
+                .setTitle(`Añadir Baneo al Pack`);
+            const serverInput = new TextInputBuilder()
+                .setCustomId("ban_server")
+                .setLabel("Nombre del servidor")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(serverInput),
+            );
+            await interaction.showModal(modal);
+        }
+        else if (args[0] === "release") {
+            console.log(`✅ Ejecutando pack release`);
+            await interaction.deferUpdate();
+            
+            let releasedCount = 0;
+            for (const email of packEmails) {
+                if (email && email.trim()) {
+                    console.log(`🔄 Liberando: "${email.trim()}"`);
+                    const result = await releaseAccountByEmail(email.trim());
+                    if (result.success) releasedCount++;
+                }
+            }
+            
+            try {
+                const channel = await interaction.client.channels.fetch(interaction.channelId);
+                const message = await channel.messages.fetch(interaction.message.id);
+                const disabledRow = ActionRowBuilder.from(message.components[0]);
+                disabledRow.components.forEach((c) => c.setDisabled(true));
+                await message.edit({ components: [disabledRow] });
+            } catch (editError) {
+                console.error("Error al editar mensaje del pack:", editError.message);
+            }
+            
+            await interaction.followUp({
+                content: `<:${EMOJIS.check}:${EMOJIS.check}> Pack liberado: ${releasedCount} cuentas devueltas.`,
+                ephemeral: true,
+            });
+        }
+        else if (args[0] === "otp") {
+            console.log(`✅ Ejecutando pack OTP`);
+            await interaction.reply({
+                content: `${formatEmoji(STATUS_EMOJIS.key)} Buscando OTP del pack...`,
+                ephemeral: true,
+            });
+            
+            const email = args[1];
+            const password = args[2];
+            console.log(`🔍 Pack OTP - email: "${email}", password: "${password}"`);
+            
+            const result = await getOtpFromWebmail(email, password);
+            await interaction.editReply(
+                result.success
+                    ? `${formatEmoji(STATUS_EMOJIS.success)} **Código OTP (FiveM del Pack):** \`${result.code}\``
+                    : `${formatEmoji(STATUS_EMOJIS.error)} **Error:** ${result.error}`,
+            );
+        }
+        else if (args[0] === "2fa") {
+            console.log(`✅ Ejecutando pack 2FA`);
+            await interaction.reply({
+                content: `${formatEmoji(STATUS_EMOJIS.key)} Pidiendo 2FA del pack...`,
+                ephemeral: true,
+            });
+            
+            const token2FA = args.slice(1).join("_");
+            console.log(`🔍 Pack 2FA - token: "${token2FA}"`);
+            
+            // ... resto del código 2FA igual que antes
+        }
+        else {
+            console.log(`❌ Pack action no reconocida: "${args[0]}"`);
+        }
+        break;
+}
