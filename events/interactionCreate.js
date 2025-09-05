@@ -502,57 +502,10 @@ module.exports = {
                         }
                     }
                     break;
-                case "pack":
-                    const packEmailsRaw = args.slice(2).join("_");
-                    const packEmails = packEmailsRaw.split(",");
-                    if (args[0] === "add" && args[1] === "ban") {
-                        const modal = new ModalBuilder()
-                            .setCustomId(`pack_ban_modal_${packEmailsRaw}`)
-                            .setTitle(`Añadir Baneo al Pack`);
-                        const serverInput = new TextInputBuilder()
-                            .setCustomId("ban_server")
-                            .setLabel("Nombre del servidor")
-                            .setStyle(TextInputStyle.Short)
-                            .setRequired(true);
-                        modal.addComponents(
-                            new ActionRowBuilder().addComponents(serverInput),
-                        );
-                        await interaction.showModal(modal);
-                    }
-                    if (args[0] === "release") {
-                        await interaction.deferUpdate();
-                        for (const email of packEmails) {
-                            if (email) await releaseAccountByEmail(email);
-                        }
-                        try {
-                            const channel =
-                                await interaction.client.channels.fetch(
-                                    interaction.channelId,
-                                );
-                            const message = await channel.messages.fetch(
-                                interaction.message.id,
-                            );
-                            const disabledRow = ActionRowBuilder.from(
-                                message.components[0],
-                            );
-                            disabledRow.components.forEach((c) =>
-                                c.setDisabled(true),
-                            );
-                            await message.edit({ components: [disabledRow] });
-                        } catch (editError) {
-                            console.error(
-                                "Error al editar mensaje del pack (borrado/reiniciado):",
-                                editError.message,
-                            );
-                        }
-                        await interaction.followUp({
-                            content: `<:${EMOJIS.check}:${EMOJIS.check}> Pack completo devuelto.`,
-                            ephemeral: true,
-                        });
-                    }
+                case "get":
                     if (args[0] === "otp") {
                         await interaction.reply({
-                            content: `${formatEmoji(STATUS_EMOJIS.key)} Buscando OTP para el pack...`,
+                            content: `${formatEmoji(STATUS_EMOJIS.key)} Buscando código OTP...`,
                             ephemeral: true,
                         });
                         const result = await getOtpFromWebmail(
@@ -564,26 +517,205 @@ module.exports = {
                                 ? `${formatEmoji(STATUS_EMOJIS.success)} **Código OTP:** \`${result.code}\``
                                 : `${formatEmoji(STATUS_EMOJIS.error)} **Error:** ${result.error}`,
                         );
-                    }
-                    if (args[0] === "2fa") {
+                    } else if (args[0] === "2fa") {
                         await interaction.reply({
-                            content: `${formatEmoji(STATUS_EMOJIS.key)} Pidiendo 2FA para el pack...`,
+                            content: `${formatEmoji(STATUS_EMOJIS.key)} Pidiendo código 2FA...`,
                             ephemeral: true,
                         });
                         try {
                             const token2FA = args.slice(1).join("_");
-                            const response = await axios.get(
-                                `https://2fa.fb.rip/api/otp/${token2FA}`,
+                            const apiUrl = `https://2fa.fb.rip/api/otp/${token2FA}`;
+
+                            console.log(`🔍 DEBUG COMPLETO - 2FA Request:`);
+                            console.log(`- Token 2FA: "${token2FA}"`);
+                            console.log(`- URL completa: "${apiUrl}"`);
+                            console.log(`- args array:`, args);
+
+                            const response = await axios.get(apiUrl, {
+                                timeout: 10000, // 10 segundos de timeout
+                                headers: {
+                                    "User-Agent": "Discord-Bot/1.0",
+                                },
+                            });
+
+                            console.log(
+                                `🔍 DEBUG - Respuesta HTTP Status:`,
+                                response.status,
                             );
-                            await interaction.editReply(
-                                response.data.token
-                                    ? `${formatEmoji(STATUS_EMOJIS.success)} **Código 2FA:** \`${response.data.token}\``
-                                    : `${formatEmoji(STATUS_EMOJIS.error)} **Error:** API no devolvió un código.`,
+                            console.log(
+                                `🔍 DEBUG - Respuesta Headers:`,
+                                response.headers,
                             );
+                            console.log(
+                                `🔍 DEBUG - Respuesta Data (raw):`,
+                                JSON.stringify(response.data, null, 2),
+                            );
+                            console.log(
+                                `🔍 DEBUG - Tipo de response.data:`,
+                                typeof response.data,
+                            );
+
+                            // Si la respuesta es un string, intentar parsearlo
+                            let parsedData;
+                            if (typeof response.data === "string") {
+                                try {
+                                    parsedData = JSON.parse(response.data);
+                                    console.log(
+                                        `🔍 DEBUG - Datos parseados:`,
+                                        parsedData,
+                                    );
+                                } catch (parseError) {
+                                    console.error(
+                                        `❌ Error al parsear JSON:`,
+                                        parseError,
+                                    );
+                                    return await interaction.editReply(
+                                        `${formatEmoji(STATUS_EMOJIS.error)} **Error:** La respuesta de la API no es JSON válido.`,
+                                    );
+                                }
+                            } else {
+                                parsedData = response.data;
+                            }
+
+                            console.log(`🔍 DEBUG - Estructura analizada:`);
+                            console.log(`- parsedData.ok:`, parsedData.ok);
+                            console.log(`- parsedData.data:`, parsedData.data);
+                            console.log(
+                                `- parsedData.data?.otp:`,
+                                parsedData.data?.otp,
+                            );
+                            console.log(
+                                `- parsedData.data?.timeRemaining:`,
+                                parsedData.data?.timeRemaining,
+                            );
+
+                            // Intentar múltiples estructuras posibles
+                            let otpCode = null;
+                            let timeRemaining = null;
+                            let errorMessage = null;
+
+                            // Estructura 1: {ok: true, data: {otp: "123456", timeRemaining: 30}}
+                            if (
+                                parsedData &&
+                                parsedData.ok &&
+                                parsedData.data &&
+                                parsedData.data.otp
+                            ) {
+                                otpCode = parsedData.data.otp;
+                                timeRemaining = parsedData.data.timeRemaining;
+                                console.log(
+                                    `✅ Estructura 1 detectada - OTP: ${otpCode}`,
+                                );
+                            }
+                            // Estructura 2: {token: "123456"}
+                            else if (parsedData && parsedData.token) {
+                                otpCode = parsedData.token;
+                                console.log(
+                                    `✅ Estructura 2 detectada - Token: ${otpCode}`,
+                                );
+                            }
+                            // Estructura 3: {otp: "123456"}
+                            else if (parsedData && parsedData.otp) {
+                                otpCode = parsedData.otp;
+                                console.log(
+                                    `✅ Estructura 3 detectada - OTP: ${otpCode}`,
+                                );
+                            }
+                            // Estructura 4: "123456" (string directo)
+                            else if (
+                                typeof parsedData === "string" &&
+                                /^\d{6}$/.test(parsedData.trim())
+                            ) {
+                                otpCode = parsedData.trim();
+                                console.log(
+                                    `✅ Estructura 4 detectada - String directo: ${otpCode}`,
+                                );
+                            }
+                            // Error de la API
+                            else if (parsedData && parsedData.ok === false) {
+                                errorMessage =
+                                    parsedData.error ||
+                                    parsedData.message ||
+                                    "Error desconocido de la API";
+                                console.log(
+                                    `❌ API devolvió error: ${errorMessage}`,
+                                );
+                            }
+                            // Estructura no reconocida
+                            else {
+                                console.error(
+                                    `❌ Estructura no reconocida:`,
+                                    parsedData,
+                                );
+
+                                // Buscar cualquier cosa que parezca un código de 6 dígitos
+                                const jsonString = JSON.stringify(parsedData);
+                                const codeMatch = jsonString.match(/\b\d{6}\b/);
+
+                                if (codeMatch) {
+                                    otpCode = codeMatch[0];
+                                    console.log(
+                                        `🔍 Código encontrado mediante regex: ${otpCode}`,
+                                    );
+                                }
+                            }
+
+                            if (otpCode) {
+                                const timeText = timeRemaining
+                                    ? `\n*Tiempo restante: ${timeRemaining}s*`
+                                    : "";
+                                await interaction.editReply(
+                                    `${formatEmoji(STATUS_EMOJIS.success)} **Código 2FA:** \`${otpCode}\`${timeText}`,
+                                );
+                            } else if (errorMessage) {
+                                await interaction.editReply(
+                                    `${formatEmoji(STATUS_EMOJIS.error)} **Error de la API:** ${errorMessage}`,
+                                );
+                            } else {
+                                await interaction.editReply(
+                                    `${formatEmoji(STATUS_EMOJIS.error)} **Error:** No se pudo extraer el código 2FA.\n*Revisa la consola para más detalles.*`,
+                                );
+                            }
                         } catch (error) {
-                            await interaction.editReply(
-                                `${formatEmoji(STATUS_EMOJIS.error)} **Error:** No se pudo conectar con la API de 2FA.`,
+                            console.error(
+                                "❌ ERROR COMPLETO AL CONECTAR CON LA API DE 2FA:",
                             );
+                            console.error("- Mensaje:", error.message);
+                            console.error("- Stack:", error.stack);
+
+                            if (error.response) {
+                                console.error(
+                                    "- HTTP Status:",
+                                    error.response.status,
+                                );
+                                console.error(
+                                    "- HTTP Status Text:",
+                                    error.response.statusText,
+                                );
+                                console.error(
+                                    "- Response Headers:",
+                                    error.response.headers,
+                                );
+                                console.error(
+                                    "- Response Data:",
+                                    error.response.data,
+                                );
+
+                                await interaction.editReply(
+                                    `${formatEmoji(STATUS_EMOJIS.error)} **Error HTTP ${error.response.status}:** ${error.response.statusText}\n*Datos: ${JSON.stringify(error.response.data)}*`,
+                                );
+                            } else if (error.request) {
+                                console.error("- No response received");
+                                console.error("- Request:", error.request);
+                                await interaction.editReply(
+                                    `${formatEmoji(STATUS_EMOJIS.error)} **Error de conexión:** No se recibió respuesta de la API.`,
+                                );
+                            } else {
+                                console.error("- Setup error:", error.message);
+                                await interaction.editReply(
+                                    `${formatEmoji(STATUS_EMOJIS.error)} **Error de configuración:** ${error.message}`,
+                                );
+                            }
                         }
                     }
                     break;

@@ -8,30 +8,41 @@ const auth = new google.auth.GoogleAuth({
 });
 const sheets = google.sheets({ version: "v4", auth });
 
-// --- INICIO DE LA SOLUCIÓN ---
-// Nueva función independiente y especializada para actualizar el estado SOLO en la hoja de Discord.
+// FUNCIÓN updateDiscordStatus con debug
 async function updateDiscordStatus(rowNumber, statusMessage) {
     try {
-        const range = `Discord!F${rowNumber}`; // Apunta directamente a la Columna F
+        const range = `Discord!F${rowNumber}`;
+        console.log(`🔍 updateDiscordStatus - Escribiendo en: ${range}`);
+        console.log(`🔍 updateDiscordStatus - Mensaje: ${statusMessage}`);
+
         await sheets.spreadsheets.values.update({
             spreadsheetId: SPREADSHEET_ID,
             range: range,
             valueInputOption: "USER_ENTERED",
             resource: { values: [[statusMessage]] },
         });
-    } catch (error) {
-        console.error(
-            "Error en la función especializada updateDiscordStatus:",
-            error,
+
+        console.log(
+            `✅ updateDiscordStatus - Estado escrito exitosamente en ${range}`,
         );
+    } catch (error) {
+        console.error(`❌ updateDiscordStatus - Error:`, error);
+        throw error; // Re-lanzar el error para que se pueda detectar arriba
     }
 }
 // --- FIN DE LA SOLUCIÓN ---
 
 async function getAvailableAccount(sheetName, user, serverFilter = null) {
-    const isDiscord = sheetName === "Discord";
+    // ✅ SOLUCIÓN: Hacer la comparación case-insensitive
+    const isDiscord = sheetName.toLowerCase() === "discord";
     const range = isDiscord ? `${sheetName}!A2:F` : `${sheetName}!A2:E`;
     const expectedCols = isDiscord ? 6 : 5;
+
+    console.log(`🔍 DEBUG - Iniciando getAvailableAccount:`);
+    console.log(`- sheetName: "${sheetName}"`);
+    console.log(`- sheetName.toLowerCase(): "${sheetName.toLowerCase()}"`);
+    console.log(`- isDiscord: ${isDiscord}`);
+    console.log(`- range: ${range}`);
 
     try {
         const response = await sheets.spreadsheets.values.get({
@@ -72,12 +83,20 @@ async function getAvailableAccount(sheetName, user, serverFilter = null) {
         const sheetRowNumber = availableRowIndex + 2;
         const rowData = rows[availableRowIndex];
 
+        console.log(`🔍 DEBUG - Datos de la fila encontrada:`);
+        console.log(`- sheetRowNumber: ${sheetRowNumber}`);
+        console.log(`- rowData: [${rowData.join(", ")}]`);
+
+        // IMPORTANTE: Extraer el 2FA token ANTES de sobrescribir nada
         const accountData = isDiscord
             ? {
                   email: rowData[1],
                   pass: rowData[2],
                   bans: rowData[3] || "Sin baneos",
-                  twoFactorToken: rowData[4],
+                  twoFactorToken:
+                      rowData[4] && rowData[4].trim() !== ""
+                          ? rowData[4].trim()
+                          : null,
               }
             : {
                   email: rowData[1],
@@ -86,12 +105,16 @@ async function getAvailableAccount(sheetName, user, serverFilter = null) {
                   twoFactorToken: null,
               };
 
+        console.log(`🔍 DEBUG - accountData creada:`);
+        console.log(`- twoFactorToken: "${accountData.twoFactorToken}"`);
+        console.log(`- tokenOriginal (rowData[4]): "${rowData[4]}"`);
+
         const timestamp = new Date().toLocaleString("es-ES", {
             timeZone: "Europe/Madrid",
         });
         const statusMessage = `✅ Usada por ${user.tag} (${user.id}) el ${timestamp}`;
 
-        // Marca la cuenta como usada (Columna A)
+        // Marcar cuenta como usada (Columna A)
         await sheets.spreadsheets.values.update({
             spreadsheetId: SPREADSHEET_ID,
             range: `${sheetName}!A${sheetRowNumber}`,
@@ -99,13 +122,23 @@ async function getAvailableAccount(sheetName, user, serverFilter = null) {
             resource: { values: [["TRUE"]] },
         });
 
-        // --- INICIO DE LA SOLUCIÓN ---
-        // Se utiliza la lógica condicional para llamar a la función correcta
+        console.log(`🔍 DEBUG - Actualizando columna de estado:`);
+        console.log(`- isDiscord: ${isDiscord}`);
+        console.log(
+            `- Comparación: "${sheetName.toLowerCase()}" === "discord" = ${sheetName.toLowerCase() === "discord"}`,
+        );
+
+        // Actualizar columna de estado
         if (isDiscord) {
-            // Llama a la nueva función especializada para Discord
+            console.log(
+                `✅ EJECUTANDO: updateDiscordStatus para fila ${sheetRowNumber}`,
+            );
+            // ✅ IMPORTANTE: Usar el nombre correcto de la hoja (con mayúscula) para la actualización
             await updateDiscordStatus(sheetRowNumber, statusMessage);
         } else {
-            // Usa la lógica anterior para FiveM y Steam (Columna E)
+            console.log(
+                `⚠️ EJECUTANDO: Lógica para hoja no-Discord (${sheetName})`,
+            );
             const statusColumn = "E";
             await sheets.spreadsheets.values.update({
                 spreadsheetId: SPREADSHEET_ID,
@@ -114,7 +147,6 @@ async function getAvailableAccount(sheetName, user, serverFilter = null) {
                 resource: { values: [[statusMessage]] },
             });
         }
-        // --- FIN DE LA SOLUCIÓN ---
 
         return accountData;
     } catch (error) {
@@ -122,7 +154,6 @@ async function getAvailableAccount(sheetName, user, serverFilter = null) {
         return null;
     }
 }
-
 // --- El resto de funciones no cambian ---
 async function addMultipleAccounts(sheetName, accountsString) {
     try {
@@ -275,29 +306,41 @@ async function releaseAccountByEmail(email) {
     try {
         for (const sheetName of accountSheets) {
             const isDiscord = sheetName === "Discord";
-            const statusColumn = isDiscord ? "F" : "E";
+            const statusColumn = isDiscord ? "F" : "E"; // ✅ CORRECTO - F para Discord, E para otros
             const range = `${sheetName}!B:B`;
+
             const response = await sheets.spreadsheets.values.get({
                 spreadsheetId: SPREADSHEET_ID,
                 range,
             });
             const values = response.data.values;
             if (!values) continue;
+
             const rowIndex = values.findIndex(
                 (row) => row[0] && row[0].toLowerCase() === email.toLowerCase(),
             );
+
             if (rowIndex !== -1 && rowIndex > 0) {
                 const sheetRowNumber = rowIndex + 1;
+
+                // Marcar como no usada
                 await sheets.spreadsheets.values.update({
                     spreadsheetId: SPREADSHEET_ID,
                     range: `${sheetName}!A${sheetRowNumber}`,
                     valueInputOption: "USER_ENTERED",
                     resource: { values: [["FALSE"]] },
                 });
+
+                // Limpiar la columna de estado (F para Discord, E para otros)
                 await sheets.spreadsheets.values.clear({
                     spreadsheetId: SPREADSHEET_ID,
                     range: `${sheetName}!${statusColumn}${sheetRowNumber}`,
                 });
+
+                console.log(
+                    `✅ Cuenta ${email} liberada. Estado limpiado en ${statusColumn}${sheetRowNumber}`,
+                );
+
                 return {
                     success: true,
                     message: `✅ La cuenta ${email} ha sido liberada.`,
@@ -469,6 +512,44 @@ async function getDashboardStats() {
     }
 }
 
+/**
+ * Obtiene los datos crudos de una fila específica para depuración
+ * @param {string} sheetName - Nombre de la hoja
+ * @param {number} rowNumber - Número de fila (empezando desde 1)
+ * @returns {Promise<{success: boolean, data: any[], message?: string}>}
+ */
+async function getRawRowData(sheetName, rowNumber) {
+    try {
+        const range = `${sheetName}!${rowNumber}:${rowNumber}`;
+        const response = await sheets.spreadsheets.values.get({
+            spreadsheetId: SPREADSHEET_ID,
+            range: range,
+        });
+
+        const rows = response.data.values;
+        if (!rows || rows.length === 0) {
+            return {
+                success: false,
+                data: [],
+                message: `La fila ${rowNumber} está vacía o no existe.`,
+            };
+        }
+
+        return {
+            success: true,
+            data: rows[0] || [],
+            message: `Datos obtenidos exitosamente de la fila ${rowNumber}.`,
+        };
+    } catch (error) {
+        console.error(`Error obteniendo datos de la fila ${rowNumber}:`, error);
+        return {
+            success: false,
+            data: [],
+            message: `Error al acceder a la fila ${rowNumber}: ${error.message}`,
+        };
+    }
+}
+
 module.exports = {
     verifyAuthCode,
     getAvailableAccount,
@@ -477,5 +558,6 @@ module.exports = {
     addMultipleAccounts,
     releaseAccountByEmail,
     getAccountPack,
-    updateDiscordStatus, // Se exporta la nueva función
+    updateDiscordStatus,
+    getRawRowData, // ✅ AÑADIR ESTA LÍNEA
 };
